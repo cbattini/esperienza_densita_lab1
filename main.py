@@ -149,7 +149,10 @@ for forma, V, m, contrib in [('cilindro', cil_V, cil_m, cil_contrib),
                             contrib={k: v[i] for k, v in contrib.items()}))
 
 # materiale: il valore tabulato più vicino, se entro il 5%
-materiali_rif = {'alluminio': 2700, 'acciaio': 7870, 'ottone': 8500}   # kg/m³
+# valori tabulati (tabella della relazione), in kg/m³: (minimo, massimo)
+materiali_intervallo = {'alluminio': (2710, 2710), 'acciaio': (7480, 8000), 'ottone': (8400, 8700)}
+# per riconoscere il materiale uso il centro dell'intervallo
+materiali_rif = {k: (a + b) / 2 for k, (a, b) in materiali_intervallo.items()}
 
 def riconosci_materiale(rho, tolleranza=0.05):
     nome, rif = min(materiali_rif.items(), key=lambda kv: abs(kv[1] - rho))
@@ -185,7 +188,7 @@ for o in oggetti:
 print("\nFIT m = ρ V PER MATERIALE")
 for mat, f in fit.items():
     print(f"{mat:<10} ρ = {f['rho']:.0f} ± {f['s_rho']:.0f} kg/m³  "
-          f"(tabulato {materiali_rif[mat]}, {len(f['gruppo'])} oggetti)")
+          f"(tabulato {materiali_intervallo[mat]}, {len(f['gruppo'])} oggetti)")
 
 
 # ---------------------------------------------------------------
@@ -365,8 +368,12 @@ for i, o in enumerate(oggetti):
     ax.annotate(nome_breve(o), (i, o['rho']), xytext=(0, -14), textcoords='offset points',
                 ha='center', va='top', fontsize=8, color=INCHIOSTRO_2)
 for mat, rif in materiali_rif.items():
+    lo, hi = materiali_intervallo[mat]
+    if hi > lo:   # leghe: fascia con l'intervallo tabulato
+        ax.axhspan(lo, hi, color=colore_mat[mat], alpha=0.12, linewidth=0, zorder=0)
     ax.axhline(rif, color=colore_mat[mat], linestyle='--', linewidth=1.2, zorder=0)
-    ax.annotate(f'{mat} {rif}', (len(oggetti) - 0.5, rif), xytext=(0, 3),
+    testo_rif = f'{lo}' if hi == lo else f'{lo}–{hi}'
+    ax.annotate(f'{mat} {testo_rif}', (len(oggetti) - 0.5, hi), xytext=(0, 3),
                 textcoords='offset points', ha='right', fontsize=9, color=INCHIOSTRO_2)
 ax.set_xticks(range(len(oggetti)), etichette, rotation=45, ha='right')
 ax.set_ylabel('densità ρ [kg/m³]')
@@ -482,6 +489,140 @@ legenda(axs[0], [voce_linea('m ∝ r² (pendenza 2)', GRIGIO, '--'),
                  voce_marker('sfera non identificata', GRIGIO, '^')], loc='upper left')
 fig.suptitle('Legge di potenza m = k rⁿ: curva in scala lineare, retta in scala bilogaritmica',
              x=0.01, ha='left', fontweight='bold')
+
+
+# ---------------------------------------------------------------
+# grafici per la relazione: fit del volume in funzione della massa
+# V = α m + β con curve_fit, come descritto nella relazione
+# uso gli stessi valori delle tabelle: media arrotondata alla risoluzione
+# dello strumento e incertezza = risoluzione; m in g, V in mm³
+# ---------------------------------------------------------------
+from decimal import Decimal, ROUND_HALF_UP
+from scipy.optimize import curve_fit
+
+def media_tabella(dati):
+    """Per ogni oggetto: media arrotondata alla risoluzione e risoluzione (come nelle tabelle)."""
+    medie, ris = [], []
+    for ogg in np.unique(dati[:, 0]):
+        sel = dati[dati[:, 0] == ogg]
+        delta = Decimal(str(sel[:, 3].max()))
+        cifre = Decimal(1).scaleb(delta.as_tuple().exponent)   # 0.02 -> 0.01, 0.001 -> 0.001
+        m = Decimal(str(media(sel[:, 2]))).quantize(cifre, ROUND_HALF_UP)
+        medie.append(float(m)); ris.append(float(delta))
+    return np.array(medie), np.array(ris)
+
+tab = []   # una riga per oggetto: forma, id, m, σm, V, σV
+for forma, dati_m, dim in [('cilindro', cilindro_massa, [cilindro_diametro, cilindro_altezza]),
+                           ('parallelepipedo', parallelepipedo_massa,
+                            [parallelepipedo_l1, parallelepipedo_l2, parallelepipedo_l3]),
+                           ('sfera', sfera_massa, [sfera_diametro])]:
+    m, sm = media_tabella(dati_m)
+    misure = [media_tabella(d) for d in dim]
+    if forma == 'cilindro':
+        (d, sd), (h, sh) = misure
+        V = volume_cilindro(d, h); sV = V * np.sqrt((2*sd/d)**2 + (sh/h)**2)
+    elif forma == 'parallelepipedo':
+        (a, sa), (b, sb), (c, sc) = misure
+        V = volume_parallepipedo(a, b, c); sV = V * np.sqrt((sa/a)**2 + (sb/b)**2 + (sc/c)**2)
+    else:
+        (d, sd), = misure
+        V = volume_sfera(d); sV = V * 3*sd/d
+    for i in range(len(m)):
+        rho = m[i] / V[i] * 1e6                              # g/mm³ -> kg/m³
+        s_rho = rho * np.sqrt((sm[i]/m[i])**2 + (sV[i]/V[i])**2)
+        tab.append(dict(forma=forma, id=i + 1, m=m[i], sm=sm[i], V=V[i], sV=sV[i],
+                        rho=rho, s_rho=s_rho, materiale=riconosci_materiale(rho)))
+
+print("\n\nVALORI COME NELLE TABELLE DELLA RELAZIONE (m in g, V in mm³, ρ in kg/m³)")
+for o in tab:
+    print(f"{o['forma']:<16}{o['id']}  m = {o['m']:.3f}  V = {o['V']:8.1f} ± {o['sV']:4.1f}"
+          f"  ρ = {o['rho']:7.1f} ± {o['s_rho']:4.1f}  {o['materiale']}")
+
+def retta(x, alpha, beta):
+    return alpha * x + beta
+
+# fit per ogni gruppo con almeno due oggetti
+# l'incertezza su m è trascurabile rispetto a quella su V (errore relativo ~1e-4 contro ~1e-3)
+fit_rel = {}
+for mat in materiali_rif:
+    g = [o for o in tab if o['materiale'] == mat]
+    if len(g) < 2:
+        continue
+    x = np.array([o['m'] for o in g]); y = np.array([o['V'] for o in g])
+    sy = np.array([o['sV'] for o in g])
+    popt, pcov = curve_fit(retta, x, y, sigma=sy, absolute_sigma=True)
+    alpha, beta = popt
+    s_alpha, s_beta = np.sqrt(np.diag(pcov))
+    chi2 = np.sum(((y - retta(x, *popt)) / sy)**2)
+    rho = 1e6 / alpha                       # α in mm³/g -> ρ in kg/m³
+    s_rho = 1e6 * s_alpha / alpha**2
+    fit_rel[mat] = dict(alpha=alpha, s_alpha=s_alpha, beta=beta, s_beta=s_beta,
+                        rho=rho, s_rho=s_rho, chi2=chi2, gdl=len(g) - 2, gruppo=g)
+
+print("\nFIT V = α m + β (curve_fit)")
+for mat, f in fit_rel.items():
+    lo, hi = materiali_intervallo[mat]
+    print(f"{mat:<10} n = {len(f['gruppo'])}  α = {f['alpha']:.3f} ± {f['s_alpha']:.3f} mm³/g"
+          f"  β = {f['beta']:.2f} ± {f['s_beta']:.2f} mm³  χ²/gdl = {f['chi2']:.2f}/{f['gdl']}"
+          f"  ρ = {f['rho']:.1f} ± {f['s_rho']:.1f} kg/m³  (tabulato {lo}–{hi})")
+    print("           oggetti:", ', '.join(f"{o['forma']} {o['id']}" for o in f['gruppo']))
+
+
+# A) dispersione (m, V) di tutti gli oggetti, con le rette dei valori tabulati come guida
+SPOSTA_A = {('cilindro', 2): (-6, 4), ('parallelepipedo', 3): (6, -4), ('cilindro', 5): (6, -12),
+            ('sfera', 5): (6, -8), ('sfera', 4): (-6, 6), ('sfera', 2): (6, -12)}
+fig, ax = plt.subplots(figsize=(8, 6), constrained_layout=True, num='A - dispersione massa volume')
+m_max = max(o['m'] for o in tab) * 1.08
+for mat, rif in materiali_rif.items():
+    ms = np.array([0, m_max])
+    ax.plot(ms, ms / rif * 1e6, color=colore_mat[mat], linestyle=':', linewidth=1.2, zorder=0)
+for forma in colore_forma:
+    g = [o for o in tab if o['forma'] == forma]
+    ax.errorbar([o['m'] for o in g], [o['V'] for o in g],
+                xerr=[o['sm'] for o in g], yerr=[o['sV'] for o in g],
+                fmt=marker_forma[forma], color=colore_forma[forma], **stile_err)
+    for o in g:
+        # spostamento dell'etichetta (in punti) scelto a mano per non sovrapporle
+        dx, dy = SPOSTA_A.get((o['forma'], o['id']), (6, -12))
+        ax.annotate(nome_breve(o), (o['m'], o['V']), xytext=(dx, dy), textcoords='offset points',
+                    ha='right' if dx < 0 else 'left', fontsize=8, color=INCHIOSTRO_2)
+legenda(ax, [voce_marker(f, colore_forma[f], marker_forma[f]) for f in colore_forma],
+        loc='upper left', titolo='forma')
+legenda(ax, [voce_linea(f'{mat} (tabulato)', colore_mat[mat], ':') for mat in materiali_rif],
+        loc='lower right', titolo='V = m/ρ')
+ax.set_xlabel('massa m [g]')
+ax.set_ylabel('volume V [mm³]')
+ax.set_title('Dispersione (m, V) di tutti i pesetti')
+ax.set_xlim(0, m_max); ax.set_ylim(0, 10000)
+ax.ticklabel_format(axis='y', style='plain')   # niente ×10⁴ in cima all'asse
+
+
+# B) un grafico per ogni gruppo: fit in alto, residui in basso
+for mat, f in fit_rel.items():
+    g = f['gruppo']; col = colore_mat[mat]
+    fig, (ax, axr) = plt.subplots(2, 1, figsize=(7, 6.5), sharex=True, constrained_layout=True,
+                                  gridspec_kw=dict(height_ratios=[3, 1.3]), num=f'B - fit {mat}')
+    x = np.array([o['m'] for o in g])
+    margine = 0.08 * (x.max() - x.min())
+    xs = np.linspace(x.min() - margine, x.max() + margine, 100)
+    ax.plot(xs, retta(xs, f['alpha'], f['beta']), color=col, zorder=0,
+            label=f"fit: α = {f['alpha']:.2f} ± {f['s_alpha']:.2f} mm³/g\n"
+                  f"      β = {f['beta']:.1f} ± {f['s_beta']:.1f} mm³")
+    for o in g:
+        ax.errorbar(o['m'], o['V'], xerr=o['sm'], yerr=o['sV'], fmt=marker_forma[o['forma']],
+                    color=col, **stile_err)
+        sx = o['forma'] == 'sfera' and o['id'] == 4      # sfera 4 e 2 hanno quasi la stessa massa
+        ax.annotate(nome_breve(o), (o['m'], o['V']), xytext=(-8 if sx else 8, 8 if sx else -12),
+                    textcoords='offset points', ha='right' if sx else 'left',
+                    fontsize=8, color=INCHIOSTRO_2)
+        r = o['V'] - retta(o['m'], f['alpha'], f['beta'])
+        axr.errorbar(o['m'], r, yerr=o['sV'], fmt=marker_forma[o['forma']], color=col, **stile_err)
+    axr.axhline(0, color=INCHIOSTRO_2, linewidth=0.8)
+    ax.legend(loc='upper left')
+    ax.set_ylabel('volume V [mm³]')
+    ax.set_title(f"Fit V = α m + β: {mat} (ρ = {f['rho']:.0f} ± {f['s_rho']:.0f} kg/m³)")
+    axr.set_xlabel('massa m [g]')
+    axr.set_ylabel('residui [mm³]')
 
 
 # ---------------------------------------------------------------
