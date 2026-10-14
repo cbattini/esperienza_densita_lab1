@@ -238,7 +238,7 @@ for nome, f in fit_scala.items():
 
 
 # ---------------------------------------------------------------
-# grafici: ognuno in una finestra separata (non vengono salvati)
+# grafici: ognuno in una finestra separata (salvati in fondo in 'grafici/')
 # ---------------------------------------------------------------
 from matplotlib.lines import Line2D
 
@@ -482,5 +482,36 @@ legenda(axs[0], [voce_linea('m ∝ r² (pendenza 2)', GRIGIO, '--'),
                  voce_marker('sfera non identificata', GRIGIO, '^')], loc='upper left')
 fig.suptitle('Legge di potenza m = k rⁿ: curva in scala lineare, retta in scala bilogaritmica',
              x=0.01, ha='left', fontweight='bold')
+
+
+# ---------------------------------------------------------------
+# salvataggio dei grafici nella cartella 'grafici/' accanto a questo file
+# ogni figura prende il nome dalla sua etichetta (num=...), es.
+# '3 - fit densità' -> grafici/3_fit_densita.pdf
+# pdf: vettoriale, da usare in LaTeX con \includegraphics
+# png: anteprima veloce
+# ---------------------------------------------------------------
+import os
+import re
+import unicodedata
+
+CARTELLA_GRAFICI = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'grafici')
+FORMATI = ('pdf', 'png')
+
+def nome_file(etichetta):
+    # niente accenti né spazi nei nomi dei file (LaTeX e alcuni sistemi non li gradiscono)
+    testo = unicodedata.normalize('NFKD', etichetta).encode('ascii', 'ignore').decode()
+    testo = re.sub(r'[^A-Za-z0-9]+', '_', testo)   # ogni gruppo di simboli/spazi -> '_'
+    return testo.strip('_').lower()
+
+os.makedirs(CARTELLA_GRAFICI, exist_ok=True)   # crea la cartella se non esiste
+
+for n in plt.get_fignums():                     # tutte le figure aperte
+    fig = plt.figure(n)
+    nome = nome_file(fig.get_label() or f'figura_{n}')
+    for formato in FORMATI:
+        percorso = os.path.join(CARTELLA_GRAFICI, f'{nome}.{formato}')
+        fig.savefig(percorso, dpi=300, bbox_inches='tight')
+    print(f'salvato: grafici/{nome}.{{{",".join(FORMATI)}}}')
 
 plt.show()
