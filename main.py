@@ -198,7 +198,7 @@ for mat, f in fit.items():
 
 def fit_retta(x, y, sx, sy, a0=1, iterazioni=10):
     """Fit pesato y = a x + b con errori su x e y (varianza efficace σy² + a² σx²).
-    Restituisce a, σa, b, σb e il chi quadro."""
+    Restituisce a, σa, b, σb."""
     a = a0
     for _ in range(iterazioni):
         w = 1 / (sy**2 + a**2 * sx**2)
@@ -207,8 +207,7 @@ def fit_retta(x, y, sx, sy, a0=1, iterazioni=10):
         D = S*Sxx - Sx**2
         a = (S*Sxy - Sx*Sy) / D
         b = (Sxx*Sy - Sx*Sxy) / D
-    chi2 = np.sum(w * (y - a*x - b)**2)
-    return a, np.sqrt(S/D), b, np.sqrt(Sxx/D), chi2
+    return a, np.sqrt(S/D), b, np.sqrt(Sxx/D)
 
 # raggio e massa delle sfere in SI (r = d/2, σr = σd/2)
 sfe_r, sfe_sr = sfe_d[:, 1] / 2 * 1e-3, sfe_d[:, 4] / 2 * 1e-3
@@ -228,16 +227,16 @@ s_k_atteso = 4/3 * np.pi * s_rho_sfere
 acciaio = np.array([o['materiale'] == 'acciaio' for o in oggetti if o['forma'] == 'sfera'])
 fit_scala = {}
 for nome, sel in [('tutte le sfere', np.ones(len(sfe_id), bool)), ('sfere di acciaio', acciaio)]:
-    a, sa, b, sb, chi2 = fit_retta(log_r[sel], log_m[sel], s_log_r[sel], s_log_m[sel], a0=3)
+    a, sa, b, sb = fit_retta(log_r[sel], log_m[sel], s_log_r[sel], s_log_m[sel], a0=3)
     k, sk = 10**b, 10**b * np.log(10) * sb      # intercetta con r = 1 m
-    fit_scala[nome] = dict(a=a, sa=sa, k=k, sk=sk, chi2=chi2, gdl=sel.sum() - 2, sel=sel)
+    fit_scala[nome] = dict(a=a, sa=sa, k=k, sk=sk, sel=sel)
 
 print("\nLEGGE DI SCALA m = k r³ (fit di log m in funzione di log r)")
 print(f"atteso: pendenza 3, k = 4/3 π ρ = {k_atteso:.0f} ± {s_k_atteso:.0f} kg/m³ "
       f"(ρ acciaio = {rho_sfere:.0f} ± {s_rho_sfere:.0f} kg/m³)")
 for nome, f in fit_scala.items():
     print(f"{nome:<17} pendenza = {f['a']:.3f} ± {f['sa']:.3f} ({abs(f['a'] - 3)/f['sa']:.0f}σ da 3)   "
-          f"k = {f['k']:.0f} ± {f['sk']:.0f} kg/m³   χ²/gdl = {f['chi2']:.1f}/{f['gdl']}")
+          f"k = {f['k']:.0f} ± {f['sk']:.0f} kg/m³")
 
 
 # ---------------------------------------------------------------
@@ -553,19 +552,21 @@ for mat in materiali_rif:
     popt, pcov = curve_fit(retta, x, y, sigma=sy, absolute_sigma=True)
     alpha, beta = popt
     s_alpha, s_beta = np.sqrt(np.diag(pcov))
-    chi2 = np.sum(((y - retta(x, *popt)) / sy)**2)
     rho = 1e6 / alpha                       # α in mm³/g -> ρ in kg/m³
     s_rho = 1e6 * s_alpha / alpha**2
     fit_rel[mat] = dict(alpha=alpha, s_alpha=s_alpha, beta=beta, s_beta=s_beta,
-                        rho=rho, s_rho=s_rho, chi2=chi2, gdl=len(g) - 2, gruppo=g)
+                        rho=rho, s_rho=s_rho, gruppo=g)
 
 print("\nFIT V = α m + β (curve_fit)")
 for mat, f in fit_rel.items():
     lo, hi = materiali_intervallo[mat]
     print(f"{mat:<10} n = {len(f['gruppo'])}  α = {f['alpha']:.3f} ± {f['s_alpha']:.3f} mm³/g"
-          f"  β = {f['beta']:.2f} ± {f['s_beta']:.2f} mm³  χ²/gdl = {f['chi2']:.2f}/{f['gdl']}"
+          f"  β = {f['beta']:.2f} ± {f['s_beta']:.2f} mm³"
           f"  ρ = {f['rho']:.1f} ± {f['s_rho']:.1f} kg/m³  (tabulato {lo}–{hi})")
-    print("           oggetti:", ', '.join(f"{o['forma']} {o['id']}" for o in f['gruppo']))
+    # residui: quanto ogni punto sta sopra/sotto la retta, confrontato con la sua barra d'errore
+    for o in f['gruppo']:
+        r = o['V'] - retta(o['m'], f['alpha'], f['beta'])
+        print(f"           {o['forma']} {o['id']}: residuo = {r:6.1f} mm³  (barra d'errore ± {o['sV']:.1f} mm³)")
 
 
 # A) dispersione (m, V) di tutti gli oggetti, con le rette dei valori tabulati come guida
