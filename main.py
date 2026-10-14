@@ -628,16 +628,15 @@ for mat, f in fit_rel.items():
 # ---------------------------------------------------------------
 # salvataggio dei grafici nella cartella 'grafici/' accanto a questo file
 # ogni figura prende il nome dalla sua etichetta (num=...), es.
-# '3 - fit densità' -> grafici/3_fit_densita.pdf
-# pdf: vettoriale, da usare in LaTeX con \includegraphics
-# png: anteprima veloce
+# '3 - fit densità' -> grafici/3_fit_densita.png
+# png a 300 dpi, da usare in LaTeX con \includegraphics
 # ---------------------------------------------------------------
 import os
 import re
 import unicodedata
 
 CARTELLA_GRAFICI = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'grafici')
-FORMATI = ('pdf', 'png')
+FORMATI = ('png',)
 
 def nome_file(etichetta):
     # niente accenti né spazi nei nomi dei file (LaTeX e alcuni sistemi non li gradiscono)
